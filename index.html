@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHINOBI AR | Shadow Clone Jutsu</title>
+
+    <!-- MediaPipe CDNs -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"
+        crossorigin="anonymous"></script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            --chakra-blue: #00d4ff;
+            --chakra-glow: rgba(0, 212, 255, 0.8);
+            --naruto-orange: #ff9d00;
+            --bg-dark: #05070a;
+            --panel-bg: rgba(5, 10, 20, 0.7);
+            --border-glow: rgba(0, 212, 255, 0.3);
+            --font-main: 'Space Mono', monospace;
+            --font-title: 'Bungee', cursive;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            font-family: var(--font-main);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #app-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle at center, #111 0%, #000 100%);
+        }
+
+        video {
+            display: none;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        /* --- SHINOBI HUD --- */
+        .hud {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+            border: 20px solid transparent;
+            /* border-image: linear-gradient(to bottom right, var(--chakra-blue), transparent, var(--naruto-orange)) 1; */
+            opacity: 0.9;
+        }
+
+        .panel {
+            position: absolute;
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glow);
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        .panel-top-left {
+            top: 30px;
+            left: 30px;
+            border-left: 5px solid var(--chakra-blue);
+            width: 350px;
+            clip-path: polygon(0 0, 100% 0, 95% 100%, 0 100%);
+        }
+
+        .panel-bottom-right {
+            bottom: 30px;
+            right: 30px;
+            border-right: 5px solid var(--naruto-orange);
+            text-align: right;
+            width: 300px;
+            clip-path: polygon(5% 0, 100% 0, 100% 100%, 0 100%);
+        }
+
+        h1 {
+            font-family: var(--font-title);
+            font-size: 1.2rem;
+            color: var(--chakra-blue);
+            text-shadow: 0 0 10px var(--chakra-glow);
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .status-row {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .status-item span {
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Chakra Meter */
+        .chakra-container {
+            width: 100%;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            margin-top: 15px;
+            position: relative;
+            overflow: hidden;
+            border-radius: 2px;
+        }
+
+        #chakra-bar {
+            height: 100%;
+            width: 80%;
+            background: linear-gradient(90deg, var(--chakra-blue), #fff);
+            box-shadow: 0 0 15px var(--chakra-blue);
+            transition: width 0.3s ease;
+        }
+
+        /* Jutsu Alert */
+        .jutsu-alert {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.8);
+            font-family: var(--font-title);
+            font-size: 5rem;
+            color: #fff;
+            text-shadow: 0 0 40px var(--naruto-orange), 0 0 80px #fff;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        .jutsu-alert.active {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        /* Scanlines Effect */
+        #app-container::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 255, 0, 0.03));
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Loading Screen */
+        .loader-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            transition: opacity 1s ease;
+        }
+
+        .seal-spinner {
+            width: 100px;
+            height: 100px;
+            background: url('https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Naruto_Uzumaki_Symbol.svg/1200px-Naruto_Uzumaki_Symbol.svg.png') no-repeat center;
+            background-size: contain;
+            animation: spin 3s linear infinite;
+            filter: drop-shadow(0 0 10px var(--naruto-orange));
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            font-family: var(--font-title);
+            font-size: 1.2rem;
+            margin-top: 30px;
+            color: var(--chakra-blue);
+            letter-spacing: 5px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        /* System Log */
+        .system-log {
+            margin-top: 15px;
+            font-size: 0.6rem;
+            color: #555;
+            height: 60px;
+            overflow: hidden;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 5px;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(-10px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="loader-overlay" id="loader">
+        <div class="seal-spinner"></div>
+        <div class="loading-text">GATHERING CHAKRA...</div>
+    </div>
+
+    <div id="app-container">
+        <video id="input_video"></video>
+        <canvas id="output_canvas"></canvas>
+
+        <div class="hud">
+            <div class="panel panel-top-left">
+                <h1>SHINOBI SYSTEM v2.0</h1>
+                <div class="status-row">
+                    <div class="status-item">LATENCY: <span id="val-fps">0ms</span></div>
+                    <div class="status-item">TARGET: <span id="val-chakra">UZUMAKI ASHMIT</span></div>
+                    <div class="status-item">SEAL STATUS: <span id="val-seal"
+                            style="color: var(--naruto-orange)">INACTIVE</span></div>
+                </div>
+
+                <div class="chakra-container">
+                    <div id="chakra-bar"></div>
+                </div>
+
+                <div class="system-log" id="system-log">
+                    <div class="log-entry">> Initializing Chakra Networks...</div>
+                    <div class="log-entry">> Ready for Kage Bunshin.</div>
+                </div>
+            </div>
+
+            <div class="jutsu-alert" id="jutsu-trigger">KAGE BUNSHIN!</div>
+
+            <div class="panel panel-bottom-right">
+                <div style="color: var(--naruto-orange); font-size: 0.8rem; margin-bottom: 5px; letter-spacing: 1px;">
+                    ACTIVE GESTURE</div>
+                <h1 style="color: #fff; font-size: 1.4rem;" id="gesture-name">SCANNING...</h1>
+                <div style="font-size: 0.7rem; color: #666; margin-top: 10px;">
+                    CLONES DETECTED: <span id="clone-count" style="color: #fff; font-weight: bold;">0</span>
+                </div>
+                <div style="font-size: 0.6rem; color: var(--chakra-blue); margin-top: 5px;">HOLD THUMBS UP TO SPAWN
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const loader = document.getElementById('loader');
+        const jutsuAlert = document.getElementById('jutsu-trigger');
+        const uiCloneCount = document.getElementById('clone-count');
+        const uiFps = document.getElementById('val-fps');
+        const uiGesture = document.getElementById('gesture-name');
+        const uiSeal = document.getElementById('val-seal');
+        const uiChakraBar = document.getElementById('chakra-bar');
+        const uiLog = document.getElementById('system-log');
+
+        // Audio System
+        const sounds = {
+            charge: new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3'),
+            spawn: new Audio('https://assets.mixkit.co/active_storage/sfx/2006/2006-preview.mp3'),
+            dispel: new Audio('https://assets.mixkit.co/active_storage/sfx/2013/2013-preview.mp3'),
+            voice: null // Will be loaded with fallback chain
+        };
+        sounds.charge.loop = true;
+        sounds.charge.volume = 0.3;
+
+        // --- Naruto Voice Line: "Kage Bunshin no Jutsu!" ---
+        // Try multiple sources with fallback to Speech Synthesis
+        const voiceSources = [
+            'https://www.myinstants.com/media/sounds/kage-bunshin-no-jutsu-sound-effect.mp3',
+            'https://www.101soundboards.com/sounds/27085-kage-bunshin-no-jutsu'
+        ];
+        let voiceLoaded = false;
+
+        function tryLoadVoice(index) {
+            if (index >= voiceSources.length) {
+                console.log('Voice clip: using Speech Synthesis fallback');
+                return;
+            }
+            const audio = new Audio();
+            audio.crossOrigin = 'anonymous';
+            audio.volume = 0.7;
+            audio.addEventListener('canplaythrough', () => {
+                if (!voiceLoaded) {
+                    voiceLoaded = true;
+                    sounds.voice = audio;
+                    console.log('Voice clip loaded from source', index);
+                }
+            }, { once: true });
+            audio.addEventListener('error', () => {
+                console.warn('Voice source failed:', voiceSources[index]);
+                tryLoadVoice(index + 1);
+            }, { once: true });
+            audio.src = voiceSources[index];
+            audio.load();
+        }
+        tryLoadVoice(0);
+
+        // Speech Synthesis fallback — Naruto-style deep voice
+        function speakJutsu() {
+            if (!('speechSynthesis' in window)) return;
+            const utter = new SpeechSynthesisUtterance('Kage Bunshin no Jutsu!');
+            utter.rate = 1.1;
+            utter.pitch = 0.6; // Deeper, intense voice
+            utter.volume = 0.8;
+            // Try Japanese voice if available, else default
+            const voices = speechSynthesis.getVoices();
+            const jpVoice = voices.find(v => v.lang.startsWith('ja'));
+            if (jpVoice) utter.voice = jpVoice;
+            speechSynthesis.speak(utter);
+        }
+        // Pre-load voices
+        if ('speechSynthesis' in window) speechSynthesis.getVoices();
+
+        // --- Procedural Jutsu Energy SFX (Web Audio API) ---
+        let jutsuAudioCtx = null;
+        function ensureJutsuAudioCtx() {
+            if (!jutsuAudioCtx) {
+                jutsuAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (jutsuAudioCtx.state === 'suspended') jutsuAudioCtx.resume();
+            return jutsuAudioCtx;
+        }
+        // Init audio context on first interaction
+        ['click', 'touchstart', 'keydown'].forEach(evt => {
+            document.addEventListener(evt, () => ensureJutsuAudioCtx(), { once: true });
+        });
+
+        function playJutsuEnergySFX() {
+            const ctx = ensureJutsuAudioCtx();
+            const t = ctx.currentTime;
+            const master = ctx.createGain();
+            master.gain.value = 0.12; // Keep volume low
+            master.connect(ctx.destination);
+
+            // Rising chakra sweep
+            const sweep = ctx.createOscillator();
+            sweep.type = 'sawtooth';
+            sweep.frequency.setValueAtTime(80, t);
+            sweep.frequency.exponentialRampToValueAtTime(1200, t + 0.4);
+            sweep.frequency.exponentialRampToValueAtTime(200, t + 0.8);
+            const sweepGain = ctx.createGain();
+            sweepGain.gain.setValueAtTime(0.3, t);
+            sweepGain.gain.linearRampToValueAtTime(0.6, t + 0.3);
+            sweepGain.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+            sweep.connect(sweepGain);
+            sweepGain.connect(master);
+            sweep.start(t);
+            sweep.stop(t + 0.9);
+
+            // Sub-bass impact at the peak
+            const sub = ctx.createOscillator();
+            sub.type = 'sine';
+            sub.frequency.setValueAtTime(100, t + 0.3);
+            sub.frequency.exponentialRampToValueAtTime(30, t + 1.0);
+            const subGain = ctx.createGain();
+            subGain.gain.setValueAtTime(0.0, t);
+            subGain.gain.linearRampToValueAtTime(0.5, t + 0.35);
+            subGain.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+            sub.connect(subGain);
+            subGain.connect(master);
+            sub.start(t);
+            sub.stop(t + 1.0);
+
+            // Shimmer burst (high harmonics)
+            const shimmer = ctx.createOscillator();
+            shimmer.type = 'triangle';
+            shimmer.frequency.setValueAtTime(2000, t + 0.25);
+            shimmer.frequency.exponentialRampToValueAtTime(500, t + 0.7);
+            const shimmerGain = ctx.createGain();
+            shimmerGain.gain.setValueAtTime(0.0, t);
+            shimmerGain.gain.linearRampToValueAtTime(0.15, t + 0.3);
+            shimmerGain.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+            shimmer.connect(shimmerGain);
+            shimmerGain.connect(master);
+            shimmer.start(t);
+            shimmer.stop(t + 0.7);
+
+            // Noise poof burst
+            const bufLen = ctx.sampleRate;
+            const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+            const nd = noiseBuf.getChannelData(0);
+            for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
+            const noiseSrc = ctx.createBufferSource();
+            noiseSrc.buffer = noiseBuf;
+            const bp = ctx.createBiquadFilter();
+            bp.type = 'bandpass';
+            bp.frequency.value = 1500;
+            bp.Q.value = 1.5;
+            const noiseG = ctx.createGain();
+            noiseG.gain.setValueAtTime(0.0, t + 0.3);
+            noiseG.gain.linearRampToValueAtTime(0.25, t + 0.38);
+            noiseG.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+            noiseSrc.connect(bp);
+            bp.connect(noiseG);
+            noiseG.connect(master);
+            noiseSrc.start(t + 0.3);
+            noiseSrc.stop(t + 0.8);
+        }
+
+        /**
+         * Play the full Jutsu callout: voice line + energy SFX
+         */
+        function playJutsuVoice() {
+            // Voice recitation has been disabled per request
+            // Layer the procedural energy SFX on top
+            playJutsuEnergySFX();
+        }
+
+        // State Management
+        let clones = [];
+        let particles = [];
+        let chakraLevel = 0;
+        let lastFrameTime = Date.now();
+        let isJutsuActive = false;
+        let segmentationResult = null;
+        let handLandmarks = null;
+
+        const offscreenCanvas = document.createElement('canvas');
+        const offscreenCtx = offscreenCanvas.getContext('2d');
+        const personCanvas = document.createElement('canvas');
+        const personCtx = personCanvas.getContext('2d');
+
+        /**
+         * GESTURE ENGINE (Imported Logic)
+         */
+        class GestureEngine {
+            constructor() {
+                this.fingerIndices = {
+                    thumb: [1, 2, 3, 4], index: [5, 6, 7, 8],
+                    middle: [9, 10, 11, 12], ring: [13, 14, 15, 16], pinky: [17, 18, 19, 20]
+                };
+            }
+            getDist(p1, p2) { return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2)); }
+            isFingerExtended(landmarks, finger) {
+                if (finger === 'thumb') {
+                    const tip = landmarks[4], indexBase = landmarks[5];
+                    const handSize = this.getDist(landmarks[0], landmarks[9]);
+                    return this.getDist(tip, indexBase) > handSize * 0.6;
+                }
+                const indices = this.fingerIndices[finger];
+                const tip = landmarks[indices[3]];
+                const pip = landmarks[indices[1]];
+                const wrist = landmarks[0];
+                return this.getDist(tip, wrist) > this.getDist(pip, wrist);
+            }
+            detectGesture(landmarks) {
+                const s = {
+                    thumb: this.isFingerExtended(landmarks, 'thumb'),
+                    index: this.isFingerExtended(landmarks, 'index'),
+                    middle: this.isFingerExtended(landmarks, 'middle'),
+                    ring: this.isFingerExtended(landmarks, 'ring'),
+                    pinky: this.isFingerExtended(landmarks, 'pinky')
+                };
+                const ext = Object.values(s).filter(v => v).length;
+                if (ext === 5) return "OPEN PALM";
+                if (ext === 0) return "CLOSED FIST";
+                if (s.index && ext === 1) return "POINTING";
+                if (s.index && s.middle && ext === 2) return "VICTORY";
+                if (s.index && s.pinky && ext === 2) return "ROCK ON";
+                if (s.thumb && s.index && s.pinky && ext === 3) return "THWIP!";
+                if (s.thumb && ext === 1) return landmarks[4].y < landmarks[2].y ? "THUMBS UP" : "THUMBS DOWN";
+                return "NONE";
+            }
+        }
+        const gestureEngine = new GestureEngine();
+
+        /**
+         * HUD UTILS
+         */
+        function addLog(msg) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerText = `> ${msg}`;
+            uiLog.prepend(entry);
+            if (uiLog.children.length > 5) uiLog.lastChild.remove();
+        }
+
+        /**
+         * PARTICLE SYSTEM
+         */
+        class SmokeParticle {
+            constructor(x, y, color = '#ddd') {
+                this.x = x; this.y = y;
+                this.vx = (Math.random() - 0.5) * 15; this.vy = (Math.random() - 0.5) * 15;
+                this.life = 1.0; this.size = Math.random() * 40 + 30;
+                this.color = color; this.rotation = Math.random() * Math.PI * 2;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.life -= 0.03; this.size += 2; this.vx *= 0.95; this.vy *= 0.95; }
+            draw(ctx) {
+                ctx.save(); ctx.globalAlpha = this.life * 0.4; ctx.fillStyle = this.color; ctx.translate(this.x, this.y); ctx.rotate(this.rotation); ctx.beginPath();
+                for (let i = 0; i < 6; i++) { const angle = (i / 6) * Math.PI * 2; const r = this.size * (0.8 + Math.random() * 0.4); const px = Math.cos(angle) * r; const py = Math.sin(angle) * r; if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+                ctx.closePath(); ctx.fill(); ctx.restore();
+            }
+        }
+
+        class ChakraParticle {
+            constructor(x, y) { this.cx = x; this.cy = y; this.x = x; this.y = y; this.life = 1.0; this.size = Math.random() * 3 + 1; this.angle = Math.random() * Math.PI * 2; this.radius = Math.random() * 50 + 20; }
+            update(tx, ty) { 
+                this.angle += 0.1; this.radius *= 0.95; 
+                const centerX = tx !== undefined ? tx : this.cx;
+                const centerY = ty !== undefined ? ty : this.cy;
+                this.x = centerX + Math.cos(this.angle) * this.radius; 
+                this.y = centerY + Math.sin(this.angle) * this.radius; 
+                this.life -= 0.02; 
+            }
+            draw(ctx) { ctx.save(); ctx.globalAlpha = this.life; ctx.fillStyle = '#00f2ff'; ctx.shadowBlur = 10; ctx.shadowColor = '#00f2ff'; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+        }
+
+        function createPoof(x, y) { for (let i = 0; i < 40; i++) particles.push(new SmokeParticle(x, y)); }
+
+        /**
+         * CLONE SYSTEM
+         */
+        function captureClone() {
+            if (!segmentationResult) return;
+            const CLONE_BATCH = 10;
+            const cw = canvasElement.width;
+            const ch = canvasElement.height;
+
+            // Circular drone-view arrangement: clones surround the subject
+            // Elliptical ring with perspective — top clones are smaller (far), bottom/side are bigger (near)
+            const radiusX = cw * 0.42;  // Horizontal spread
+            const radiusY = ch * 0.32;  // Vertical spread (elliptical for perspective)
+
+            for (let i = 0; i < CLONE_BATCH; i++) {
+                const angle = (i / CLONE_BATCH) * Math.PI * 2 - Math.PI / 2; // Start from top
+                const offsetX = Math.cos(angle) * radiusX;
+                const offsetY = Math.sin(angle) * radiusY;
+
+                // Perspective scale: clones "behind" (top) are smaller, "in front" (bottom) are larger
+                const depthFactor = (Math.sin(angle) + 1) / 2; // 0 = top (far), 1 = bottom (near)
+                const cloneScale = 0.45 + depthFactor * 0.4; // Range: 0.45 (far) to 0.85 (near)
+                const cloneOpacity = 0.5 + depthFactor * 0.35; // Farther = more transparent
+
+                // Life for 40 seconds (approx 2400 frames at 60fps)
+                clones.push({
+                    x: offsetX,
+                    y: offsetY,
+                    scale: cloneScale,
+                    opacity: 0,
+                    targetOpacity: cloneOpacity,
+                    life: 2400,
+                    angle: angle, // Store for potential rotation effects
+                    depth: depthFactor // For draw-order sorting
+                });
+
+                // Stagger the poof effects in a spiral pattern
+                setTimeout(() => {
+                    createPoof(cw / 2 + offsetX, ch / 2 + offsetY);
+                }, i * 60);
+            }
+
+            // Sort clones by depth so "far" clones draw first (behind near ones)
+            clones.sort((a, b) => (a.depth || 0) - (b.depth || 0));
+
+            uiCloneCount.innerText = clones.length;
+            sounds.spawn.currentTime = 0;
+            sounds.spawn.play().catch(() => { });
+            // Play "Kage Bunshin no Jutsu!" voice + energy SFX
+            playJutsuVoice();
+            addLog(`${CLONE_BATCH} Clones Manifested! Total: ${clones.length}`);
+        }
+
+        /**
+         * GESTURE MAPPING
+         */
+        function isThumbsUp(landmarks) { return gestureEngine.detectGesture(landmarks) === "THUMBS UP"; }
+        function isFist(landmarks) { 
+            const isFistGesture = gestureEngine.detectGesture(landmarks) === "CLOSED FIST";
+            const isHandHigh = landmarks[0].y < 0.8; // Prevent resting hands from dispelling
+            return isFistGesture && isHandHigh;
+        }
+
+        function getActiveThumbsUpHands() {
+            if (!handLandmarks) return 0;
+            return handLandmarks.filter(h => isThumbsUp(h)).length;
+        }
+
+        /**
+         * RENDERING ENGINE
+         */
+        function drawChakraAura() {
+            if (!segmentationResult) return;
+            canvasCtx.save();
+            canvasCtx.filter = 'blur(20px) brightness(1.5)';
+            canvasCtx.globalAlpha = 0.4 + Math.sin(Date.now() / 200) * 0.2;
+            canvasCtx.globalCompositeOperation = 'screen';
+            offscreenCtx.save();
+            offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            offscreenCtx.drawImage(segmentationResult.segmentationMask, -10, -10, offscreenCanvas.width + 20, offscreenCanvas.height + 20);
+            offscreenCtx.globalCompositeOperation = 'source-in';
+            offscreenCtx.fillStyle = '#00f2ff';
+            offscreenCtx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            offscreenCtx.restore();
+            canvasCtx.drawImage(offscreenCanvas, 0, 0);
+            canvasCtx.restore();
+        }
+
+        function drawSkeleton(landmarks) {
+            canvasCtx.save();
+            const w = canvasElement.width; const h = canvasElement.height;
+            canvasCtx.lineWidth = 3; canvasCtx.strokeStyle = 'rgba(0, 242, 255, 0.5)';
+            canvasCtx.lineCap = 'round'; canvasCtx.shadowBlur = 10; canvasCtx.shadowColor = '#00f2ff';
+            const connections = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [0, 9], [9, 10], [10, 11], [11, 12], [0, 13], [13, 14], [14, 15], [15, 16], [0, 17], [17, 18], [18, 19], [19, 20], [5, 9], [9, 13], [13, 17]];
+            connections.forEach(([i, j]) => {
+                canvasCtx.beginPath(); canvasCtx.moveTo(landmarks[i].x * w, landmarks[i].y * h); canvasCtx.lineTo(landmarks[j].x * w, landmarks[j].y * h); canvasCtx.stroke();
+            });
+            landmarks.forEach((p, i) => {
+                const isTip = [4, 8, 12, 16, 20].includes(i);
+                canvasCtx.fillStyle = isTip ? 'rgba(188, 0, 255, 0.6)' : 'rgba(0, 242, 255, 0.4)';
+                canvasCtx.beginPath(); canvasCtx.arc(p.x * w, p.y * h, isTip ? 6 : 4, 0, Math.PI * 2); canvasCtx.fill();
+                canvasCtx.fillStyle = '#fff'; canvasCtx.beginPath(); canvasCtx.arc(p.x * w, p.y * h, 1.5, 0, Math.PI * 2); canvasCtx.fill();
+            });
+            canvasCtx.restore();
+        }
+
+        function renderLoop() {
+            const now = Date.now();
+            uiFps.innerText = (now - lastFrameTime) + 'ms';
+            lastFrameTime = now;
+
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            if (offscreenCanvas.width !== canvasElement.width) {
+                offscreenCanvas.width = canvasElement.width;
+                offscreenCanvas.height = canvasElement.height;
+            }
+
+            // 1. Draw Camera Background (Always visible)
+            canvasCtx.save();
+            canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.restore();
+
+            // 2. Draw AR Overlays if models are ready
+            if (segmentationResult) {
+                if (personCanvas.width !== canvasElement.width) {
+                    personCanvas.width = canvasElement.width;
+                    personCanvas.height = canvasElement.height;
+                }
+
+                // First, prepare the segmented live feed in personCanvas
+                personCtx.save();
+                personCtx.clearRect(0, 0, personCanvas.width, personCanvas.height);
+                personCtx.drawImage(segmentationResult.segmentationMask, 0, 0, personCanvas.width, personCanvas.height);
+                personCtx.globalCompositeOperation = 'source-in';
+                personCtx.drawImage(videoElement, 0, 0, personCanvas.width, personCanvas.height);
+                personCtx.restore();
+
+                drawChakraAura();
+
+                // Draw live clones
+                clones = clones.filter(clone => {
+                    clone.life--;
+                    if (clone.life <= 0) {
+                        createPoof(canvasElement.width / 2 + clone.x, canvasElement.height / 2);
+                        sounds.dispel.currentTime = 0;
+                        sounds.dispel.play().catch(() => { });
+                        uiCloneCount.innerText = clones.length - 1;
+                        return false;
+                    }
+
+                    clone.opacity = Math.min(clone.targetOpacity, clone.opacity + 0.05);
+                    const flicker = 1.0 + Math.sin(Date.now() / 30) * 0.1;
+                    canvasCtx.save();
+                    canvasCtx.globalAlpha = Math.min(1.0, Math.max(0.0, clone.opacity * flicker));
+                    const w = canvasElement.width * clone.scale; const h = canvasElement.height * clone.scale;
+                    const x = (canvasElement.width - w) / 2 + clone.x; 
+                    const y = (canvasElement.height - h) + clone.y;
+                    canvasCtx.drawImage(personCanvas, x, y, w, h);
+                    canvasCtx.restore();
+                    return true;
+                });
+
+                // Draw Main User
+                canvasCtx.drawImage(personCanvas, 0, 0);
+            }
+
+            // 3. Hand Signs & HUD
+            let thumbsUpCount = getActiveThumbsUpHands();
+            let isDispelling = false;
+            if (handLandmarks) {
+                handLandmarks.forEach(landmarks => {
+                    drawSkeleton(landmarks);
+                    if (isFist(landmarks)) isDispelling = true;
+                });
+            }
+
+            if (thumbsUpCount > 0) {
+                chakraLevel = Math.min(100, chakraLevel + (thumbsUpCount * 2));
+                uiSeal.innerText = "ACTIVE"; uiSeal.style.color = "#fff";
+                uiGesture.innerText = "THUMBS UP DETECTED";
+
+                if (sounds.charge.paused) sounds.charge.play().catch(() => { });
+
+                // Particles at all thumbs up hands
+                handLandmarks.forEach(h => {
+                    if (isThumbsUp(h)) {
+                        const tx = h[4].x * canvasElement.width;
+                        const ty = h[4].y * canvasElement.height;
+                        for (let i = 0; i < 3; i++) particles.push(new ChakraParticle(tx, ty));
+                    }
+                });
+
+                if (chakraLevel >= 100 && !isJutsuActive) {
+                    captureClone(); isJutsuActive = true; jutsuAlert.classList.add('active');
+                    setTimeout(() => { jutsuAlert.classList.remove('active'); isJutsuActive = false; chakraLevel = 0; }, 800);
+                }
+            } else {
+                if (!sounds.charge.paused) {
+                    sounds.charge.pause();
+                    sounds.charge.currentTime = 0;
+                }
+                chakraLevel = Math.max(0, chakraLevel - 1);
+                uiSeal.innerText = "INACTIVE"; uiSeal.style.color = "var(--naruto-orange)";
+                uiGesture.innerText = handLandmarks?.length > 0 ? "SCANNING GESTURES..." : "WAITING...";
+            }
+
+            if (isDispelling && thumbsUpCount === 0 && clones.length > 0) {
+                addLog("Dispelling Clones.");
+                sounds.dispel.currentTime = 0;
+                sounds.dispel.play().catch(() => { });
+                clones.forEach(c => {
+                    const h = canvasElement.height * c.scale;
+                    const poofY = (canvasElement.height - h) + c.y + h/2;
+                    createPoof(canvasElement.width / 2 + c.x, poofY);
+                });
+                clones = []; uiCloneCount.innerText = "0";
+                createPoof(canvasElement.width / 2, canvasElement.height / 2);
+            }
+
+            uiChakraBar.style.width = `${chakraLevel}%`;
+
+            // 4. Particles
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                if (p instanceof ChakraParticle && handLandmarks?.length >= 2) {
+                    const h1 = handLandmarks[0]; const h2 = handLandmarks[1];
+                    const tx = ((h1[8].x + h2[8].x) / 2) * canvasElement.width;
+                    const ty = ((h1[8].y + h2[8].y) / 2) * canvasElement.height;
+                    p.update(tx, ty);
+                } else { p.update(); }
+                p.draw(canvasCtx);
+            });
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        /**
+         * INITIALIZATION
+         */
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7 });
+        hands.onResults(res => { handLandmarks = res.multiHandLandmarks; });
+
+        const selfieSegmentation = new SelfieSegmentation({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}` });
+        selfieSegmentation.setOptions({ modelSelection: 1 });
+        selfieSegmentation.onResults(res => { segmentationResult = res; });
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+                await selfieSegmentation.send({ image: videoElement });
+            },
+            width: window.innerWidth > 1280 ? 1280 : window.innerWidth,
+            height: window.innerHeight > 720 ? 720 : window.innerHeight
+        });
+
+        function resize() { canvasElement.width = window.innerWidth; canvasElement.height = window.innerHeight; }
+        window.addEventListener('resize', resize);
+        resize();
+
+        camera.start().then(() => {
+            loader.style.opacity = '0';
+            setTimeout(() => loader.style.display = 'none', 1000);
+            addLog("System Online. Use Thumbs Up to Spawn.");
+            requestAnimationFrame(renderLoop);
+        });
+    </script>
+</body>
+
+</html>
